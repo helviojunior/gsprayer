@@ -18,22 +18,25 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Installing
 
-First, clone the repository
+First, install dependencies
+
+```
+sudp apt update
+sudo apt install chromium-driver pipx
+wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo apt install ./google-chrome-stable_current_amd64.deb
+```
+
+After, clone the repository
 
 ```
 git clone https://github.com/yok4i/gsprayer.git
 ```
 
-Once inside it, run `poetry` to install the dependencies
+Once inside it, run `pip` to install
 
 ```
-poetry install
-```
-
-Alternatively, you can install them with `pip`
-
-```
-pip install -r requirements.txt
+pipx install . --include-deps
 ```
 
 ### Help
@@ -41,9 +44,9 @@ pip install -r requirements.txt
 Use `-h` to show the help menu
 
 ```
-poetry run ./gsprayer.py -h
+gsprayer -h
 
-usage: gsprayer.py [-h] [-t TARGET] [-d {chrome,firefox}] (-u USERNAME | -U FILE) [-o OUTPUT] [-r N] [-x PROXY] [--sleep SLEEP] [--wait WAIT] [--jitter JITTER] [--slack SLACK]
+usage: gsprayer [-h] [-t TARGET] [-d {chrome,firefox}] (-u USERNAME | -U FILE) [-o OUTPUT] [-r N] [-x PROXY] [--sleep SLEEP] [--wait WAIT] [--jitter JITTER] [--slack SLACK]
                    [-H] [-s] [--rua] [-v]
                    {enum,spray} ...
 
@@ -85,7 +88,7 @@ subcommands:
 There is also help menu for each subcommand:
 
 ```
-poetry run ./gsprayer.py <subcommand> -h
+gsprayer <subcommand> -h
 ```
 
 
@@ -94,23 +97,18 @@ poetry run ./gsprayer.py <subcommand> -h
 Enumerate valid accounts from a company using G-Suite, in headless mode
 
 ```
-poetry run ./gsprayer.py -r 50 -U emails.txt --headless enum
+gsprayer -r 50 -U emails.txt --headless enum
 ```
 
 Perform password spraying using a proxy and waiting 30 minutes between each password iteration
 
 ```
-poetry run ./gsprayer.py -r 1 -U emails.txt -P passwords.txt --proxy 127.0.0.1:9050 spray --lockout 30
+gsprayer -r 1 -U emails.txt --proxy 127.0.0.1:9050 spray --lockout 30 -P passwords.txt
 ```
 
 ### Note
 
 If you are using a proxy with a protocol other than HTTP, you should specify the schema like `socks5://127.0.0.1:9050`.
-
-
-## Versioning
-
-We use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/yok4i/gsprayer/tags). 
 
 
 ## License
